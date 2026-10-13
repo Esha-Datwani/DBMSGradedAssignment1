@@ -1,7 +1,6 @@
 import sqlite3
 from pathlib import Path
 
-# Use the same database file as setup_database.py.
 BASE_DIR = Path(__file__).resolve().parent
 DB_FILE = BASE_DIR / "flight_management.db"
 
@@ -34,7 +33,6 @@ def read_value(prompt):
 
 def show_rows(rows):
     """Display SQLite query results as an aligned table."""
-
     if not rows:
         print("\nNo records found.")
         return
@@ -56,12 +54,10 @@ def show_rows(rows):
         for i in range(len(headers))
     ]
 
-    # Build the table's horizontal separator.
     separator = "+-" + "-+-".join(
         "-" * width for width in widths
     ) + "-+"
 
-    # Print the column headings.
     print("\n" + separator)
     print("| " + " | ".join(
         headers[i].replace("_", " ").title().ljust(widths[i])
@@ -69,7 +65,6 @@ def show_rows(rows):
     ) + " |")
     print(separator)
 
-    # Print each record.
     for row in data:
         print("| " + " | ".join(
             row[i].ljust(widths[i])
@@ -104,14 +99,11 @@ def view_all_flights():
 
             FROM Flights f
 
-            JOIN Destinations o
-                ON f.origin_destination_id = o.destination_id
+            JOIN Destinations o ON f.origin_destination_id = o.destination_id
 
-            JOIN Destinations d
-                ON f.destination_id = d.destination_id
+            JOIN Destinations d ON f.destination_id = d.destination_id
 
-            JOIN Aircraft a
-                ON f.aircraft_id = a.aircraft_id
+            JOIN Aircraft a ON f.aircraft_id = a.aircraft_id
 
             ORDER BY f.departure_time
         """).fetchall()
@@ -137,14 +129,7 @@ def add_flight():
         "Delayed/Cancelled) [Scheduled]: "
     ).strip() or "Scheduled"
 
-    valid_statuses = (
-        "Scheduled",
-        "Boarding",
-        "Departed",
-        "Landed",
-        "Delayed",
-        "Cancelled"
-    )
+    valid_statuses = ("Scheduled","Boarding","Departed","Landed","Delayed","Cancelled")
 
     if status not in valid_statuses:
         print("Invalid flight status.")
@@ -166,8 +151,7 @@ def add_flight():
 
     try:
         with get_connection() as conn:
-            # Confirm that the selected aircraft exists
-            # and is available for assignment.
+            # Confirm that the selected aircraft exists and is available for assignment.
             aircraft = conn.execute("""
                 SELECT status
                 FROM Aircraft
@@ -185,7 +169,6 @@ def add_flight():
                 )
                 return
 
-            # Insert the flight using parameterised SQL.
             conn.execute("""
                 INSERT INTO Flights (
                     flight_number,
@@ -215,15 +198,9 @@ def add_flight():
 
 def view_flights():
     """Retrieve flights using optional search criteria."""
-    destination = input(
-        "Destination airport code (Enter to skip): "
-    ).strip().upper()
-    status = input(
-        "Status (Enter to skip): "
-    ).strip()
-    departure_date = input(
-        "Departure date YYYY-MM-DD (Enter to skip): "
-    ).strip()
+    destination = input("Destination airport code (Enter to skip): ").strip().upper()
+    status = input("Status (Enter to skip): ").strip()
+    departure_date = input("Departure date YYYY-MM-DD (Enter to skip): ").strip()
 
     query = """
         SELECT
@@ -307,13 +284,18 @@ def search_flight():
         show_rows(rows)
 
 
+
 def update_flight():
-    """Update a flight's schedule or status."""
+    """Update a flight's schedule or status with validation."""
+
+    from datetime import datetime
+
     flight_id = read_int("Flight ID to update: ")
 
     print("1. Change departure time")
     print("2. Change arrival time")
     print("3. Change status")
+
     choice = input("Select field: ").strip()
 
     fields = {
@@ -329,27 +311,74 @@ def update_flight():
     column = fields[choice]
     new_value = read_value(f"New {column}: ")
 
+    valid_statuses = (
+        "Scheduled",
+        "Boarding",
+        "Departed",
+        "Landed",
+        "Delayed",
+        "Cancelled"
+    )
+
     try:
         with get_connection() as conn:
-            cursor = conn.execute(
+            # Get the existing flight.
+            flight = conn.execute("""
+                SELECT departure_time, arrival_time, status
+                FROM Flights
+                WHERE flight_id = ?
+            """, (flight_id,)).fetchone()
+
+            if flight is None:
+                print("Flight ID not found.")
+                return
+
+            # Determine the resulting values before updating.
+            departure = (
+                new_value if column == "departure_time"
+                else flight["departure_time"]
+            )
+
+            arrival = (
+                new_value if column == "arrival_time"
+                else flight["arrival_time"]
+            )
+
+            status = (
+                new_value if column == "status"
+                else flight["status"]
+            )
+
+            # Validate the new status.
+            if status not in valid_statuses:
+                raise ValueError("Invalid flight status.")
+
+            # Validate date/time format and schedule.
+            departure_dt = datetime.strptime(departure, "%Y-%m-%d %H:%M")
+            arrival_dt = datetime.strptime(arrival, "%Y-%m-%d %H:%M")
+
+            if departure_dt >= arrival_dt:
+                raise ValueError("Departure must be before arrival.")
+
+            # Prevent premature landed status.
+            if (
+                status == "Landed"
+                and arrival_dt > datetime.now()
+            ):
+                raise ValueError(
+                    "A flight cannot be marked Landed "
+                    "before its scheduled arrival time."
+                )
+
+            # Update only after all validations pass.
+            conn.execute(
                 f"UPDATE Flights SET {column} = ? "
                 "WHERE flight_id = ?",
                 (new_value, flight_id)
             )
-            if cursor.rowcount:
-                # Verify that the resulting schedule is valid.
-                flight = conn.execute("""
-                    SELECT departure_time, arrival_time
-                    FROM Flights WHERE flight_id = ?
-                """, (flight_id,)).fetchone()
 
-                if flight["departure_time"] >= flight["arrival_time"]:
-                    raise ValueError(
-                        "Departure must be before arrival."
-                    )
-                print("Flight updated successfully.")
-            else:
-                print("Flight ID not found.")
+        print("Flight updated successfully.")
+
     except (sqlite3.IntegrityError, ValueError) as error:
         print(f"Update failed: {error}")
 
@@ -357,9 +386,7 @@ def update_flight():
 def delete_flight():
     """Delete a flight and its associated assignments."""
     flight_id = read_int("Flight ID to delete: ")
-    confirm = input(
-        "Delete this flight? Type YES to confirm: "
-    ).strip()
+    confirm = input("Delete this flight? Type YES to confirm: ").strip()
 
     if confirm != "YES":
         print("Deletion cancelled.")
@@ -485,13 +512,14 @@ def manage_destinations():
                 city = read_value("New city: ")
                 country = read_value("New country: ")
                 name = read_value("New airport name: ")
+                airport_code = read_value("New Airport code: ")
 
                 cursor = conn.execute("""
                     UPDATE Destinations
                     SET city = ?, country = ?,
-                        destination_name = ?
+                        destination_name = ?, airport_code = ?
                     WHERE destination_id = ?
-                """, (city, country, name, destination_id))
+                """, (city, country, name, airport_code,destination_id))
 
                 print(
                     "Destination updated."
@@ -664,21 +692,10 @@ def manage_aircraft():
 
             elif choice == "2":
 
-                registration = read_value(
-                    "Registration Number: "
-                )
-
-                model = read_value(
-                    "Model: "
-                )
-
-                manufacturer = read_value(
-                    "Manufacturer: "
-                )
-
-                capacity = read_int(
-                    "Seating Capacity: "
-                )
+                registration = read_value("Registration Number: ")
+                model = read_value("Model: ")
+                manufacturer = read_value("Manufacturer: ")
+                capacity = read_int("Seating Capacity: ")
 
                 conn.execute("""
                     INSERT INTO Aircraft
@@ -700,9 +717,7 @@ def manage_aircraft():
 
             elif choice == "3":
 
-                aircraft_id = read_int(
-                    "Aircraft ID: "
-                )
+                aircraft_id = read_int("Aircraft ID: ")
 
                 status = read_value(
                     "Status "
@@ -711,9 +726,7 @@ def manage_aircraft():
                 )
 
                 if status not in valid_statuses:
-                    print(
-                        "Invalid aircraft status."
-                    )
+                    print("Invalid aircraft status.")
                     return
 
                 cursor = conn.execute("""
@@ -733,9 +746,7 @@ def manage_aircraft():
 
             elif choice == "4":
 
-                aircraft_id = read_int(
-                    "Aircraft ID: "
-                )
+                aircraft_id = read_int("Aircraft ID: ")
 
                 cursor = conn.execute("""
                     DELETE FROM Aircraft
@@ -850,16 +861,17 @@ def delayed_cancelled_flights():
                 departure_time,
                 status
             FROM FlightOverview
-            WHERE status IN ('Delayed', 'Cancelled')
+            WHERE status IN ('Delayed', 'Cancelled','Landed')
             ORDER BY departure_time
         """).fetchall()
 
         show_rows(rows)
 
+
 def upcoming_flights():
+    """Display upcoming flights that have not landed or been cancelled."""
 
     with get_connection() as conn:
-
         rows = conn.execute("""
             SELECT
                 flight_number,
@@ -868,7 +880,8 @@ def upcoming_flights():
                 departure_time,
                 status
             FROM FlightOverview
-            WHERE departure_time >= datetime('now')
+            WHERE departure_time >= datetime('now', 'localtime')
+              AND status NOT IN ('Landed', 'Cancelled')
             ORDER BY departure_time
             LIMIT 10
         """).fetchall()

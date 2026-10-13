@@ -149,3 +149,30 @@ BEGIN
         )
     END;
 END;
+
+
+-- Prevent a flight from being inserted as Landed before its scheduled arrival time.
+CREATE TRIGGER IF NOT EXISTS prevent_premature_landed_insert
+BEFORE INSERT ON Flights
+FOR EACH ROW
+WHEN NEW.status = 'Landed'
+ AND datetime(NEW.arrival_time) > datetime('now', 'localtime')
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'Flight cannot be marked Landed before its scheduled arrival time'
+    );
+END;
+
+-- Prevent a flight from being updated to Landed before its scheduled arrival time.
+CREATE TRIGGER IF NOT EXISTS prevent_premature_landed_update
+BEFORE UPDATE OF status, arrival_time ON Flights
+FOR EACH ROW
+WHEN NEW.status = 'Landed'
+ AND datetime(NEW.arrival_time) > datetime('now', 'localtime')
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'Flight cannot be marked Landed before its scheduled arrival time'
+    );
+END;
