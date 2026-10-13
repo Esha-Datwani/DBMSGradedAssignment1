@@ -120,8 +120,8 @@ def view_all_flights():
 
 
 def add_flight():
-    """Insert a new flight."""
-    flight_number = read_value("Flight number: ")
+    """Insert a new flight after validating aircraft and schedule."""
+    flight_number = read_value("Flight number: ").upper()
 
     origin_destination_id = read_int("Origin Destination ID: ")
     destination_id = read_int("Destination ID: ")
@@ -133,16 +133,61 @@ def add_flight():
     departure = read_value("Departure (YYYY-MM-DD HH:MM): ")
     arrival = read_value("Arrival (YYYY-MM-DD HH:MM): ")
     status = input(
-        "Status "
-        "(Scheduled/Boarding/Departed/Landed/"
+        "Status (Scheduled/Boarding/Departed/Landed/"
         "Delayed/Cancelled) [Scheduled]: "
     ).strip() or "Scheduled"
 
+    valid_statuses = (
+        "Scheduled",
+        "Boarding",
+        "Departed",
+        "Landed",
+        "Delayed",
+        "Cancelled"
+    )
+
+    if status not in valid_statuses:
+        print("Invalid flight status.")
+        return
+
+    # Validate the timestamp format and chronological order.
+    from datetime import datetime
+
+    try:
+        departure_dt = datetime.strptime(departure, "%Y-%m-%d %H:%M")
+        arrival_dt = datetime.strptime(arrival, "%Y-%m-%d %H:%M")
+    except ValueError:
+        print("Invalid date/time. Use YYYY-MM-DD HH:MM.")
+        return
+
+    if departure_dt >= arrival_dt:
+        print("Arrival must be after departure.")
+        return
+
     try:
         with get_connection() as conn:
+            # Confirm that the selected aircraft exists
+            # and is available for assignment.
+            aircraft = conn.execute("""
+                SELECT status
+                FROM Aircraft
+                WHERE aircraft_id = ?
+            """, (aircraft_id,)).fetchone()
+
+            if aircraft is None:
+                print("Aircraft ID not found.")
+                return
+
+            if aircraft["status"] != "Available":
+                print(
+                    "Cannot assign this aircraft. "
+                    f"Current status: {aircraft['status']}."
+                )
+                return
+
+            # Insert the flight using parameterised SQL.
             conn.execute("""
-                INSERT INTO Flights
-                (
+                INSERT INTO Flights (
                     flight_number,
                     origin_destination_id,
                     destination_id,
@@ -715,12 +760,17 @@ def show_summaries():
     with get_connection() as conn:
         print("\nFlights per destination:")
         rows = conn.execute("""
-            SELECT d.city, d.airport_code,
-                   COUNT(f.flight_id) AS flight_count
+            SELECT
+                d.city,
+                d.airport_code,
+                COUNT(f.flight_id) AS flight_count
             FROM Destinations d
-            LEFT JOIN Flights f ON d.destination_id = f.destination_id
-                OR d.destination_id = f.origin_destination_id
-            GROUP BY d.destination_id
+            LEFT JOIN Flights f
+                ON d.destination_id = f.destination_id
+            GROUP BY
+                d.destination_id,
+                d.city,
+                d.airport_code
             ORDER BY flight_count DESC
         """).fetchall()
         show_rows(rows)

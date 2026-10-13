@@ -108,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_flights_aircraft
 ON Flights(aircraft_id);
 
 
-CREATE VIEW FlightOverview AS
+CREATE VIEW IF NOT EXISTS FlightOverview AS
 SELECT
     f.flight_id,
     f.flight_number,
@@ -133,7 +133,7 @@ ON f.aircraft_id =
    a.aircraft_id;
 
 
-CREATE TRIGGER prevent_inactive_pilot_assignment
+CREATE TRIGGER IF NOT EXISTS prevent_inactive_pilot_assignment
 BEFORE INSERT ON FlightAssignments
 FOR EACH ROW
 BEGIN

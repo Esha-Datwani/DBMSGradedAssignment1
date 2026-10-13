@@ -13,6 +13,9 @@ def setup_database():
         raise FileNotFoundError("schema.sql was not found.")
 
     conn = sqlite3.connect(DB_FILE)
+    
+    # Allow rows to be accessed using column names.
+    conn.row_factory = sqlite3.Row
 
     # Foreign keys must be enabled for each SQLite connection.
     conn.execute("PRAGMA foreign_keys = ON")
@@ -80,7 +83,7 @@ def setup_database():
             ("9V-S301", "787-9", "Boeing", 290, "Available"),
             ("F-G401", "A350-900", "Airbus", 325, "Available"),
             ("D-A501", "A330-300", "Airbus", 300, "Available"),
-            ("JA601", "787-8", "Boeing", 242, "Maintenance"),
+            ("JA601", "787-8", "Boeing", 242, "Available"),
             ("VH-701", "A380", "Airbus", 525, "Available"),
             ("C-F801", "777-200LR", "Boeing", 317, "Available"),
             ("ZS-901", "737-800", "Boeing", 189, "Available")
@@ -152,31 +155,56 @@ def setup_database():
 
 
         # -----------------------------------------
-        # 4. Assign two pilots to each flight.
+        # 4. Assign one Captain and one First Office to each flight.
         # -----------------------------------------
-        for i in range(12):
-            flight_number = f"FM{101 + i}"
 
-            flight = conn.execute("""
-                SELECT flight_id
-                FROM Flights
-                WHERE flight_number = ?
-            """, (flight_number,)).fetchone()
+        # Retrieve active pilots according to their rank.
+        captains = conn.execute("""
+            SELECT pilot_id
+            FROM Pilots
+            WHERE rank = 'Captain'
+              AND active = 1
+            ORDER BY pilot_id
+        """).fetchall()
 
-            captain_id = (i % 12) + 1
-            officer_id = ((i + 1) % 12) + 1
+        first_officers = conn.execute("""
+            SELECT pilot_id
+            FROM Pilots
+            WHERE rank = 'First Officer'
+              AND active = 1
+            ORDER BY pilot_id
+        """).fetchall()
+
+        if not captains or not first_officers:
+            raise ValueError(
+                "Sample data must include at least one active Captain "
+                "and one active First Officer."
+            )
+
+        # Retrieve all flights in a predictable order.
+        flights_to_assign = conn.execute("""
+            SELECT flight_id, flight_number
+            FROM Flights
+            ORDER BY flight_number
+        """).fetchall()
+
+        # Assign pilots according to their actual ranks.
+        for i, flight in enumerate(flights_to_assign):
+
+            captain_id = captains[i % len(captains)]["pilot_id"]
+            officer_id = first_officers[i % len(first_officers)]["pilot_id"]
 
             conn.execute("""
                 INSERT OR IGNORE INTO FlightAssignments
-                (flight_id, pilot_id, assignment_role)
+                    (flight_id, pilot_id, assignment_role)
                 VALUES (?, ?, 'Captain')
-            """, (flight[0], captain_id))
+            """, (flight["flight_id"], captain_id))
 
             conn.execute("""
                 INSERT OR IGNORE INTO FlightAssignments
-                (flight_id, pilot_id, assignment_role)
+                    (flight_id, pilot_id, assignment_role)
                 VALUES (?, ?, 'First Officer')
-            """, (flight[0], officer_id))
+            """, (flight["flight_id"], officer_id))
 
         conn.commit()
 
