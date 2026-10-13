@@ -920,7 +920,7 @@ def main():
 
 13. Flight Details Report
 14. Database Summaries
-15. Delayed / Cancelled Flights
+15. Delayed / Cancelled / Landed Flights
 16. Upcoming Flights
 17. View Flights by Status Summary
 
