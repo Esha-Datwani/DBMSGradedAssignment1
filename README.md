@@ -80,10 +80,12 @@ The database contains five main tables, one database view, and one trigger
 
 ### Additional Database Objects
 
-| Object | Purpose |
-|----------|----------|
-| FlightOverview (View) | Provides consolidated flight, airport and aircraft information. |
-| prevent_inactive_pilot_assignment (Trigger) | Prevents inactive pilots from being assigned to flights. |
+| Object                                      | Purpose                                                                           |
+|---------------------------------------------|-----------------------------------------------------------------------------------|
+| FlightOverview (View)                       | Provides consolidated flight, airport and aircraft information.                   |
+| prevent_inactive_pilot_assignment (Trigger) | Prevents inactive pilots from being assigned to flights.                          |
+| prevent_premature_landed_update (Trigger)   | Prevent a flight from being updated as Landed before its scheduled arrival time.  |
+| prevent_premature_landed_insert (Trigger)   | Prevent a flight from being inserted as Landed before its scheduled arrival time. |
 
 ### Relationships
 
@@ -265,22 +267,22 @@ The implementation also demonstrates:
 
 The application demonstrates the following database operations:
 
-| SQL Concept | Purpose |
-|---|---|
-| `CREATE TABLE` | Defines the relational schema. |
-| `INSERT` | Adds flights, pilots, destinations, and assignments. |
-| `SELECT` | Retrieves stored records. |
-| `WHERE` | Filters flights and identifies individual records. |
-| `UPDATE` | Changes flight schedules, statuses, and destination or pilot information. |
-| `DELETE` | Removes records while respecting foreign-key constraints. |
-| `JOIN` | Combines information from related tables. |
-| `VIEW` | Provides consolidated flight reporting through FlightOverview. |
-| `TRIGGER` | Prevents assignment of inactive pilots. |
-| `INDEX` | Improves performance of common queries. |
-| `CHECK Constraints` | Enforce business rules such as flight status and pilot rank. |
-| `LEFT JOIN` | Includes destinations or pilots even when they have no associated flights or assignments. |
-| `COUNT()` and `GROUP BY` | Produce summaries of flights by destination, pilot, or status. |
-| Parameterised queries | Use `?` placeholders to pass user input safely to SQLite. |
+| SQL Concept | Purpose                                                                                                                      |
+|---|------------------------------------------------------------------------------------------------------------------------------|
+| `CREATE TABLE` | Defines the relational schema.                                                                                               |
+| `INSERT` | Adds flights, pilots, destinations, and assignments.                                                                         |
+| `SELECT` | Retrieves stored records.                                                                                                    |
+| `WHERE` | Filters flights and identifies individual records.                                                                           |
+| `UPDATE` | Changes flight schedules, statuses, and destination or pilot information.                                                    |
+| `DELETE` | Removes records while respecting foreign-key constraints.                                                                    |
+| `JOIN` | Combines information from related tables.                                                                                    |
+| `VIEW` | Provides consolidated flight reporting through FlightOverview.                                                               |
+| `TRIGGER` | Prevents assignment of inactive pilots / a flight from being inserted & updated as Landed before its scheduled arrival time. |
+| `INDEX` | Improves performance of common queries.                                                                                      |
+| `CHECK Constraints` | Enforce business rules such as flight status and pilot rank.                                                                 |
+| `LEFT JOIN` | Includes destinations or pilots even when they have no associated flights or assignments.                                    |
+| `COUNT()` and `GROUP BY` | Produce summaries of flights by destination, pilot, or status.                                                               |
+| Parameterised queries | Use `?` placeholders to pass user input safely to SQLite.                                                                    |
 
 ## 11. Data Integrity and Validation
 
@@ -297,7 +299,7 @@ The database and application include several validation measures:
 - Pilot ranks are restricted to Captain or First Officer.
 - Origin and destination airports cannot be the same.
 - Aircraft must exist before they can be assigned to a flight.
-- Trigger-based validation prevents inactive pilots being assigned to flights.
+- Trigger-based validation prevents inactive pilots being assigned to flights / a flight from being inserted and updated as Landed before its scheduled arrival time.
 
 
 ## 12. Troubleshooting
