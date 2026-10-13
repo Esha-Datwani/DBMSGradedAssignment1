@@ -24,13 +24,14 @@ It uses Python's built-in `sqlite3` library, so no external database server or t
 - Add new flights.
 - View all flights in a formatted table.
 - Search for a flight by flight number.
-- Filter flights by destination airport code, status, and departure date.
+- Filter flights by destination, status, and departure date.
 - Update departure time, arrival time, or flight status.
 - Delete flights and their associated assignments.
 - View detailed flight reports.
 - View delayed and cancelled flights.
 - View upcoming flights.
 - Summarise flights by status.
+- View flight overview reports.
 
 ### Pilot Management
 
@@ -40,6 +41,16 @@ It uses Python's built-in `sqlite3` library, so no external database server or t
 - Delete pilot records.
 - Assign pilots to flights as Captain, First Officer, or Relief Pilot.
 - View pilot schedules and existing flight assignments.
+- Pilot rank management (Captain / First Officer).
+- Validation of pilot-role assignments.
+
+### Aircraft Management
+
+- View aircraft records.
+- Add aircraft.
+- Update aircraft operational status.
+- Delete aircraft.
+- Track aircraft utilisation.
 
 ### Destination Management
 
@@ -57,21 +68,31 @@ It uses Python's built-in `sqlite3` library, so no external database server or t
 
 ## 4. Database Design
 
-The database contains four related tables.
+The database contains five main tables, one database view, and one trigger
 
 | Table | Purpose |
-|---|---|
-| `Destinations` | Stores airport names, cities, countries, and unique airport codes. |
-| `Pilots` | Stores pilot names, licence numbers, hire dates, and active status. |
-| `Flights` | Stores flight numbers, origins, destinations, schedules, and status. |
-| `FlightAssignments` | Connects pilots to flights and records their assignment roles. |
+|---------|---------|
+| Destinations | Stores airports, city, country and airport code information. |
+| Pilots | Stores pilot details, ranks, licence numbers and active status. |
+| Aircraft | Stores aircraft registration, model, manufacturer and operational status. |
+| Flights | Stores scheduled flights, origin and destination airports, aircraft and status. |
+| FlightAssignments | Implements pilot-to-flight assignments. |
+
+### Additional Database Objects
+
+| Object | Purpose |
+|----------|----------|
+| FlightOverview (View) | Provides consolidated flight, airport and aircraft information. |
+| prevent_inactive_pilot_assignment (Trigger) | Prevents inactive pilots from being assigned to flights. |
 
 ### Relationships
 
-- One destination can be associated with many flights.
+- One destination can be the origin for many flights.
+- One destination can be the destination for many flights.
+- One aircraft can operate many flights.
 - One flight can have multiple pilot assignments.
 - One pilot can be assigned to multiple flights.
-- `FlightAssignments` implements the many-to-many relationship between flights and pilots.
+- FlightAssignments implements the many-to-many relationship between pilots and flights.
 
 Primary keys, foreign keys, unique constraints, and check constraints help maintain data integrity.
 
@@ -128,6 +149,7 @@ On a fresh database, the expected sample data is:
 
 - 12 destinations
 - 12 pilots
+- 12 aircraft
 - 12 flights
 - 24 pilot assignments
 
@@ -146,7 +168,7 @@ The Flight Management System menu will appear in the terminal.
 ## 8. Application Menu
 
 | Option | Function |
-|---:|---|
+|----------|----------|
 | 1 | Add a New Flight |
 | 2 | View All Flights |
 | 3 | Search Flight by Flight Number |
@@ -158,11 +180,12 @@ The Flight Management System menu will appear in the terminal.
 | 9 | View Flight Assignments |
 | 10 | Manage Destinations |
 | 11 | Manage Pilots |
-| 12 | Flight Details Report |
-| 13 | Database Summaries |
-| 14 | Delayed / Cancelled Flights |
-| 15 | Upcoming Flights |
-| 16 | View Flights by Status Summary |
+| 12 | Manage Aircraft |
+| 13 | Flight Details Report |
+| 14 | Database Summaries |
+| 15 | Delayed / Cancelled Flights |
+| 16 | Upcoming Flights |
+| 17 | View Flights by Status Summary |
 | 0 | Exit |
 
 ## 9. Example Usage
@@ -195,15 +218,18 @@ Leave a field empty to skip that filter.
 
 ### Add a Flight
 
-Select option `1` and provide the flight number, origin, destination ID, departure and arrival timestamps, and status.
+Select option 1 and provide:
 
-Use the following timestamp format:
+- Flight Number
+- Origin Destination ID
+- Destination ID
+- Aircraft ID
+- Departure Time
+- Arrival Time
+- Status
 
-```text
-YYYY-MM-DD HH:MM
-```
-
-The destination ID must already exist in the `Destinations` table.
+The origin and destination must be different.
+The destination and aircraft records must already exist.
 
 ### Assign a Pilot
 
@@ -215,7 +241,25 @@ Valid roles are:
 - `First Officer`
 - `Relief Pilot`
 
-Inactive pilots cannot be assigned through the application.
+Additional business rules:
+- Inactive pilots cannot be assigned.
+- Only pilots with rank Captain can be assigned as Captain.
+- Only pilots with rank First Officer can be assigned as First Officer.
+- A flight can have only one Captain assignment.
+
+## Database Design Principles
+
+The database was designed according to Third Normal Form (3NF) principles. Repeating data has been eliminated through the use of foreign-key relationships between Flights, Destinations, Aircraft, and Pilots. A junction table (FlightAssignments) is used to model the many-to-many relationship between pilots and flights.
+
+The implementation also demonstrates:
+- Primary Keys
+- Foreign Keys
+- CHECK Constraints
+- Triggers
+- Views
+- Indexes
+- Aggregate Queries
+- Transaction Management
 
 ## 10. SQL Concepts Demonstrated
 
@@ -230,6 +274,10 @@ The application demonstrates the following database operations:
 | `UPDATE` | Changes flight schedules, statuses, and destination or pilot information. |
 | `DELETE` | Removes records while respecting foreign-key constraints. |
 | `JOIN` | Combines information from related tables. |
+| `VIEW` | Provides consolidated flight reporting through FlightOverview. |
+| `TRIGGER` | Prevents assignment of inactive pilots. |
+| `INDEX` | Improves performance of common queries. |
+| `CHECK Constraints` | Enforce business rules such as flight status and pilot rank. |
 | `LEFT JOIN` | Includes destinations or pilots even when they have no associated flights or assignments. |
 | `COUNT()` and `GROUP BY` | Produce summaries of flights by destination, pilot, or status. |
 | Parameterised queries | Use `?` placeholders to pass user input safely to SQLite. |
@@ -245,6 +293,11 @@ The database and application include several validation measures:
 - Inactive pilots cannot be assigned through the application.
 - A flight cannot be deleted without its associated assignments being handled by the database's cascade rule.
 - User-supplied values are passed through parameterised SQL queries.
+- Aircraft statuses are restricted to predefined values.
+- Pilot ranks are restricted to Captain or First Officer.
+- Origin and destination airports cannot be the same.
+- Aircraft must exist before they can be assigned to a flight.
+- Trigger-based validation prevents inactive pilots being assigned to flights.
 
 
 ## 12. Troubleshooting
@@ -288,6 +341,11 @@ Test the application by performing the following operations:
 7. Add and update a destination.
 8. View the database summaries.
 9. Delete the test flight and confirm that its assignments are removed.
+10. Add and manage aircraft records.
+11. Verify that inactive pilots cannot be assigned.
+12. Verify that pilot rank restrictions are enforced.
+13. Verify aircraft utilisation reporting.
+14. Verify FlightOverview view output.
 
 Capture screenshots of these operations for the accompanying project report.
 
@@ -298,7 +356,11 @@ Potential future enhancements include:
 - A graphical user interface or web interface.
 - More comprehensive validation of date and time inputs.
 - Automatic detection of overlapping pilot schedules.
-- Stronger operational rules for pilot assignments.
+- Pilot schedule conflict detection.
+- Aircraft maintenance scheduling.
+- Aircraft availability checking before flight assignment.
+- Crew management beyond pilots.
+- Route profitability and operational analytics.
 - User authentication and role-based permissions.
 - Automated unit tests.
 - Improved table formatting for narrow terminals.

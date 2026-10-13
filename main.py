@@ -88,15 +88,31 @@ def view_all_flights():
             SELECT
                 f.flight_id,
                 f.flight_number,
-                f.origin,
+
+                o.city AS origin_city,
+                o.airport_code AS origin_code,
+
                 d.city AS destination_city,
-                d.airport_code,
+                d.airport_code AS destination_code,
+
+                a.registration_number,
+                a.model,
+
                 f.departure_time,
                 f.arrival_time,
                 f.status
+
             FROM Flights f
+
+            JOIN Destinations o
+                ON f.origin_destination_id = o.destination_id
+
             JOIN Destinations d
                 ON f.destination_id = d.destination_id
+
+            JOIN Aircraft a
+                ON f.aircraft_id = a.aircraft_id
+
             ORDER BY f.departure_time
         """).fetchall()
 
@@ -106,16 +122,19 @@ def view_all_flights():
 def add_flight():
     """Insert a new flight."""
     flight_number = read_value("Flight number: ")
-    origin = read_value("Origin city/airport: ")
+
+    origin_destination_id = read_int("Origin Destination ID: ")
     destination_id = read_int("Destination ID: ")
-    departure = read_value(
-        "Departure (YYYY-MM-DD HH:MM): "
-    )
-    arrival = read_value(
-        "Arrival (YYYY-MM-DD HH:MM): "
-    )
+    if origin_destination_id == destination_id:
+        print("Origin and destination cannot be the same.")
+        return
+
+    aircraft_id = read_int("Aircraft ID: ")
+    departure = read_value("Departure (YYYY-MM-DD HH:MM): ")
+    arrival = read_value("Arrival (YYYY-MM-DD HH:MM): ")
     status = input(
-        "Status (Scheduled/Boarding/Departed/Landed/"
+        "Status "
+        "(Scheduled/Boarding/Departed/Landed/"
         "Delayed/Cancelled) [Scheduled]: "
     ).strip() or "Scheduled"
 
@@ -123,14 +142,28 @@ def add_flight():
         with get_connection() as conn:
             conn.execute("""
                 INSERT INTO Flights
-                (flight_number, origin, destination_id,
-                 departure_time, arrival_time, status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    flight_number,
+                    origin_destination_id,
+                    destination_id,
+                    aircraft_id,
+                    departure_time,
+                    arrival_time,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
-                flight_number, origin, destination_id,
-                departure, arrival, status
+                flight_number,
+                origin_destination_id,
+                destination_id,
+                aircraft_id,
+                departure,
+                arrival,
+                status
             ))
+
         print("Flight added successfully.")
+
     except sqlite3.IntegrityError as error:
         print(f"Could not add flight: {error}")
 
@@ -148,15 +181,35 @@ def view_flights():
     ).strip()
 
     query = """
-        SELECT f.flight_id, f.flight_number, f.origin,
-               d.city AS destination_city,
-               d.airport_code, f.departure_time,
-               f.arrival_time, f.status
+        SELECT
+            f.flight_id,
+            f.flight_number,
+
+            o.city AS origin_city,
+
+            d.city AS destination_city,
+            d.airport_code,
+
+            a.registration_number,
+
+            f.departure_time,
+            f.arrival_time,
+            f.status
+
         FROM Flights f
+
+        JOIN Destinations o
+        ON f.origin_destination_id = o.destination_id
+
         JOIN Destinations d
-          ON f.destination_id = d.destination_id
+        ON f.destination_id = d.destination_id
+
+        JOIN Aircraft a
+        ON f.aircraft_id = a.aircraft_id
+
         WHERE 1 = 1
     """
+    
     params = []
 
     if destination:
@@ -190,15 +243,19 @@ def search_flight():
             SELECT
                 f.flight_id,
                 f.flight_number,
-                f.origin,
+                o.city AS origin,
                 d.city AS destination,
                 d.airport_code,
+                a.registration_number,
+                a.model,
                 f.departure_time,
                 f.arrival_time,
                 f.status
+
             FROM Flights f
-            JOIN Destinations d
-                ON f.destination_id = d.destination_id
+            JOIN Destinations o ON f.origin_destination_id = o.destination_id
+            JOIN Destinations d ON f.destination_id = d.destination_id
+            JOIN Aircraft a ON f.aircraft_id = a.aircraft_id
             WHERE f.flight_number = ?
         """, (flight_number,)).fetchall()
 
@@ -275,21 +332,23 @@ def delete_flight():
 
 
 def assign_pilot():
-    """Assign a pilot to a flight in a specific role."""
+    """Assign a pilot to a flight."""
+
     flight_id = read_int("Flight ID: ")
     pilot_id = read_int("Pilot ID: ")
-    role = read_value(
-        "Role (Captain/First Officer/Relief Pilot): "
-    )
-
-    if role not in ("Captain", "First Officer", "Relief Pilot"):
+    role = read_value("Role (Captain/First Officer/Relief Pilot): ")
+    if role not in ("Captain","First Officer","Relief Pilot"):
         print("Invalid assignment role.")
         return
 
     try:
         with get_connection() as conn:
             pilot = conn.execute("""
-                SELECT active FROM Pilots WHERE pilot_id = ?
+                SELECT
+                    active,
+                    rank
+                FROM Pilots
+                WHERE pilot_id = ?
             """, (pilot_id,)).fetchone()
 
             if pilot is None:
@@ -300,11 +359,20 @@ def assign_pilot():
                 print("Cannot assign an inactive pilot.")
                 return
 
+            if (role == "Captain" and pilot["rank"] != "Captain"):
+                print("Only pilots with Captain rank can be assigned as Captain.")
+                return
+
+            if (role == "First Officer" and pilot["rank"] != "First Officer"):
+                print("Only pilots with First Officer rank can be assigned as First Officer.")
+                return
+
             if role == "Captain":
                 existing = conn.execute("""
-                    SELECT 1 FROM FlightAssignments
+                    SELECT 1
+                    FROM FlightAssignments
                     WHERE flight_id = ?
-                      AND assignment_role = 'Captain'
+                    AND assignment_role = 'Captain'
                 """, (flight_id,)).fetchone()
 
                 if existing:
@@ -313,11 +381,16 @@ def assign_pilot():
 
             conn.execute("""
                 INSERT INTO FlightAssignments
-                (flight_id, pilot_id, assignment_role)
+                (flight_id, pilot_id,assignment_role)
                 VALUES (?, ?, ?)
-            """, (flight_id, pilot_id, role))
+            """, (
+                flight_id,
+                pilot_id,
+                role
+            ))
 
         print("Pilot assigned successfully.")
+
     except sqlite3.IntegrityError as error:
         print(f"Assignment failed: {error}")
 
@@ -329,15 +402,15 @@ def view_pilot_schedule():
     with get_connection() as conn:
         rows = conn.execute("""
             SELECT p.first_name, p.last_name,
-                   f.flight_number, f.origin,
+                   f.flight_number, o.city AS origin,
                    d.city AS destination,
                    f.departure_time, f.arrival_time,
                    f.status, a.assignment_role
             FROM FlightAssignments a
             JOIN Pilots p ON a.pilot_id = p.pilot_id
             JOIN Flights f ON a.flight_id = f.flight_id
-            JOIN Destinations d
-              ON f.destination_id = d.destination_id
+            JOIN Destinations o ON f.origin_destination_id = o.destination_id
+            JOIN Destinations d ON f.destination_id = d.destination_id
             WHERE p.pilot_id = ?
             ORDER BY f.departure_time
         """, (pilot_id,)).fetchall()
@@ -468,12 +541,14 @@ def manage_pilots():
                 last = read_value("Last name: ")
                 licence = read_value("Licence number: ")
                 hire_date = read_value("Hire date YYYY-MM-DD: ")
+                rank = read_value("Rank (Captain/First Officer): ")
+
 
                 conn.execute("""
                     INSERT INTO Pilots
-                    (first_name, last_name, licence_number, hire_date)
-                    VALUES (?, ?, ?, ?)
-                """, (first, last, licence, hire_date))
+                    (first_name, last_name, licence_number, rank, hire_date)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (first, last, licence, rank, hire_date))
                 print("Pilot added.")
 
             elif choice == "3":
@@ -510,6 +585,131 @@ def manage_pilots():
         print(f"Operation failed: {error}")
 
 
+def manage_aircraft():
+    """Manage aircraft records."""
+
+    print("1. View Aircraft")
+    print("2. Add Aircraft")
+    print("3. Update Aircraft Status")
+    print("4. Delete Aircraft")
+
+    choice = input(
+        "Select option: "
+    ).strip()
+
+    valid_statuses = (
+        "Available",
+        "Maintenance",
+        "Out of Service"
+    )
+
+    try:
+
+        with get_connection() as conn:
+
+            if choice == "1":
+
+                rows = conn.execute("""
+                    SELECT *
+                    FROM Aircraft
+                    ORDER BY registration_number
+                """).fetchall()
+
+                show_rows(rows)
+
+            elif choice == "2":
+
+                registration = read_value(
+                    "Registration Number: "
+                )
+
+                model = read_value(
+                    "Model: "
+                )
+
+                manufacturer = read_value(
+                    "Manufacturer: "
+                )
+
+                capacity = read_int(
+                    "Seating Capacity: "
+                )
+
+                conn.execute("""
+                    INSERT INTO Aircraft
+                    (
+                        registration_number,
+                        model,
+                        manufacturer,
+                        seating_capacity
+                    )
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    registration,
+                    model,
+                    manufacturer,
+                    capacity
+                ))
+
+                print("Aircraft added.")
+
+            elif choice == "3":
+
+                aircraft_id = read_int(
+                    "Aircraft ID: "
+                )
+
+                status = read_value(
+                    "Status "
+                    "(Available/Maintenance/"
+                    "Out of Service): "
+                )
+
+                if status not in valid_statuses:
+                    print(
+                        "Invalid aircraft status."
+                    )
+                    return
+
+                cursor = conn.execute("""
+                    UPDATE Aircraft
+                    SET status = ?
+                    WHERE aircraft_id = ?
+                """, (
+                    status,
+                    aircraft_id
+                ))
+
+                print(
+                    "Aircraft updated."
+                    if cursor.rowcount
+                    else "Aircraft not found."
+                )
+
+            elif choice == "4":
+
+                aircraft_id = read_int(
+                    "Aircraft ID: "
+                )
+
+                cursor = conn.execute("""
+                    DELETE FROM Aircraft
+                    WHERE aircraft_id = ?
+                """, (aircraft_id,))
+
+                print(
+                    "Aircraft deleted."
+                    if cursor.rowcount
+                    else "Aircraft not found."
+                )
+
+            else:
+                print("Invalid option.")
+
+    except sqlite3.IntegrityError as error:
+        print(f"Operation failed: {error}")
+
+
 def show_summaries():
     """Run aggregate queries for destinations and pilots."""
     with get_connection() as conn:
@@ -518,9 +718,9 @@ def show_summaries():
             SELECT d.city, d.airport_code,
                    COUNT(f.flight_id) AS flight_count
             FROM Destinations d
-            LEFT JOIN Flights f
-              ON d.destination_id = f.destination_id
-            GROUP BY d.destination_id, d.city, d.airport_code
+            LEFT JOIN Flights f ON d.destination_id = f.destination_id
+                OR d.destination_id = f.origin_destination_id
+            GROUP BY d.destination_id
             ORDER BY flight_count DESC
         """).fetchall()
         show_rows(rows)
@@ -537,28 +737,53 @@ def show_summaries():
         """).fetchall()
         show_rows(rows)
 
+
+        print("\nAircraft Utilisation:")
+        rows = conn.execute("""
+            SELECT
+                a.registration_number,
+                a.model,
+                COUNT(f.flight_id) AS total_flights
+            FROM Aircraft a
+            LEFT JOIN Flights f ON a.aircraft_id = f.aircraft_id GROUP BY a.aircraft_id
+            ORDER BY total_flights DESC
+        """).fetchall()
+        show_rows(rows)
+
+        print("\nFlights by Status:")
+        rows = conn.execute("""
+            SELECT
+                status,
+                COUNT(*) AS total
+            FROM Flights
+            GROUP BY status
+        """).fetchall()
+        show_rows(rows)
+
+        print("\nMost Active Pilots:")
+        rows = conn.execute("""
+            SELECT
+                p.first_name,
+                p.last_name,
+                COUNT(a.flight_id) AS total_flights
+            FROM Pilots p
+            LEFT JOIN FlightAssignments a
+                ON p.pilot_id = a.pilot_id
+            GROUP BY p.pilot_id
+            ORDER BY total_flights DESC
+            LIMIT 5
+        """).fetchall()
+
+        show_rows(rows)
+
 def flight_details_report():
 
     with get_connection() as conn:
 
         rows = conn.execute("""
-            SELECT
-                f.flight_number,
-                f.origin,
-                d.city AS destination,
-                f.departure_time,
-                f.arrival_time,
-                f.status,
-                p.first_name || ' ' || p.last_name AS pilot_name,
-                a.assignment_role
-            FROM Flights f
-            JOIN Destinations d
-                ON f.destination_id = d.destination_id
-            LEFT JOIN FlightAssignments a
-                ON f.flight_id = a.flight_id
-            LEFT JOIN Pilots p
-                ON a.pilot_id = p.pilot_id
-            ORDER BY f.flight_number
+            SELECT *
+            FROM FlightOverview
+            ORDER BY departure_time
         """).fetchall()
 
         show_rows(rows)
@@ -570,10 +795,11 @@ def delayed_cancelled_flights():
         rows = conn.execute("""
             SELECT
                 flight_number,
-                origin,
+                origin_city,
+                destination_city,
                 departure_time,
                 status
-            FROM Flights
+            FROM FlightOverview
             WHERE status IN ('Delayed', 'Cancelled')
             ORDER BY departure_time
         """).fetchall()
@@ -587,10 +813,11 @@ def upcoming_flights():
         rows = conn.execute("""
             SELECT
                 flight_number,
-                origin,
+                origin_city,
+                destination_city,
                 departure_time,
                 status
-            FROM Flights
+            FROM FlightOverview
             WHERE departure_time >= datetime('now')
             ORDER BY departure_time
             LIMIT 10
@@ -626,12 +853,13 @@ def main():
 
 10. Manage Destinations
 11. Manage Pilots
+12. Manage Aircraft
 
-12. Flight Details Report
-13. Database Summaries
-14. Delayed / Cancelled Flights
-15. Upcoming Flights
-16. View Flights by Status Summary
+13. Flight Details Report
+14. Database Summaries
+15. Delayed / Cancelled Flights
+16. Upcoming Flights
+17. View Flights by Status Summary
 
 0.  Exit
 
@@ -652,11 +880,12 @@ def main():
             "9": view_assignments,
             "10": manage_destinations,
             "11": manage_pilots,
-            "12": flight_details_report,
-            "13": show_summaries,
-            "14": delayed_cancelled_flights,
-            "15": upcoming_flights,
-            "16": flights_by_status_summary
+            "12": manage_aircraft,
+            "13": flight_details_report,
+            "14": show_summaries,
+            "15": delayed_cancelled_flights,
+            "16": upcoming_flights,
+            "17": flights_by_status_summary
         }
 
         if choice == "0":

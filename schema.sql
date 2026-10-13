@@ -16,26 +16,60 @@ CREATE TABLE IF NOT EXISTS Pilots (
     first_name TEXT NOT NULL,
     last_name TEXT NOT NULL,
     licence_number TEXT NOT NULL UNIQUE,
+    rank TEXT NOT NULL CHECK (rank IN ('Captain','First Officer')),
     hire_date TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1
     CHECK (active IN (0, 1))
+);
+
+CREATE TABLE IF NOT EXISTS Aircraft (
+    aircraft_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    registration_number TEXT NOT NULL UNIQUE,
+    model TEXT NOT NULL,
+    manufacturer TEXT NOT NULL,
+    seating_capacity INTEGER NOT NULL CHECK(seating_capacity > 0),
+    status TEXT NOT NULL DEFAULT 'Available'
+        CHECK(status IN (
+            'Available',
+            'Maintenance',
+            'Out of Service'
+        ))
 );
 
 -- 3. Store flight schedules.
 CREATE TABLE IF NOT EXISTS Flights (
     flight_id INTEGER PRIMARY KEY AUTOINCREMENT,
     flight_number TEXT NOT NULL UNIQUE,
-    origin TEXT NOT NULL,
+    origin_destination_id INTEGER NOT NULL,
     destination_id INTEGER NOT NULL,
+    aircraft_id INTEGER NOT NULL,
     departure_time TEXT NOT NULL,
     arrival_time TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'Scheduled'
-        CHECK (status IN ('Scheduled', 'Boarding', 'Departed','Landed', 'Delayed', 'Cancelled')),
-    FOREIGN KEY (destination_id)
+        CHECK(
+            status IN (
+                'Scheduled',
+                'Boarding',
+                'Departed',
+                'Landed',
+                'Delayed',
+                'Cancelled'
+            )
+        ),
+    FOREIGN KEY(origin_destination_id)
         REFERENCES Destinations(destination_id)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
-    CHECK (departure_time < arrival_time)
+    FOREIGN KEY(destination_id)
+        REFERENCES Destinations(destination_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    FOREIGN KEY(aircraft_id)
+        REFERENCES Aircraft(aircraft_id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+    CHECK(arrival_time > departure_time),
+    CHECK(origin_destination_id <> destination_id)
 );
 
 -- 4. Link pilots to flights.
@@ -66,3 +100,52 @@ CREATE INDEX IF NOT EXISTS idx_flights_destination
 
 CREATE INDEX IF NOT EXISTS idx_assignments_pilot
     ON FlightAssignments(pilot_id);
+
+CREATE INDEX IF NOT EXISTS idx_flights_origin
+ON Flights(origin_destination_id);
+
+CREATE INDEX IF NOT EXISTS idx_flights_aircraft
+ON Flights(aircraft_id);
+
+
+CREATE VIEW FlightOverview AS
+SELECT
+    f.flight_id,
+    f.flight_number,
+    o.city AS origin_city,
+    o.airport_code AS origin_code,
+    d.city AS destination_city,
+    d.airport_code AS destination_code,
+    a.registration_number,
+    a.model,
+    f.departure_time,
+    f.arrival_time,
+    f.status
+FROM Flights f
+JOIN Destinations o
+ON f.origin_destination_id =
+   o.destination_id
+JOIN Destinations d
+ON f.destination_id =
+   d.destination_id
+JOIN Aircraft a
+ON f.aircraft_id =
+   a.aircraft_id;
+
+
+CREATE TRIGGER prevent_inactive_pilot_assignment
+BEFORE INSERT ON FlightAssignments
+FOR EACH ROW
+BEGIN
+    SELECT CASE
+        WHEN (
+            SELECT active
+            FROM Pilots
+            WHERE pilot_id = NEW.pilot_id
+        ) = 0
+        THEN RAISE(
+            ABORT,
+            'Inactive pilot cannot be assigned'
+        )
+    END;
+END;
